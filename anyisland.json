@@ -1,7 +1,7 @@
 {
   "name": "kylrix",
   "version": "0.1.0",
-  "description": "The robust CLI client for the Kylrix ecosystem (Note, Vault, Connect, Keep, Flow, Accounts).",
+  "description": "The robust CLI client for the Kylrix ecosystem (Note, Vault, Connect, Flow).",
   "repository": "github.com/nathfavour/kylrix",
   "build": {
     "toolchain": "go",

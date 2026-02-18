@@ -18,7 +18,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "kylrix",
 	Short: "Kylrix Ecosystem CLI",
-	Long:  `A robust CLI tool for managing the Kylrix ecosystem (Note, Vault, Connect, Keep, Flow, Accounts).`,
+	Long:  `A robust CLI tool for managing the Kylrix ecosystem (Note, Vault, Connect, Flow).`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		checkAnyisland()
 	},

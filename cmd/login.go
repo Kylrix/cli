@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/nathfavour/kylrix/cli/pkg/config"
+	"github.com/nathfavour/kylrix/cli/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -11,19 +10,25 @@ var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with Kylrix Ecosystem",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Skeleton for login logic
-		fmt.Println("Attempting to login...")
+		utils.Banner("Kylrix Authentication")
 		
-		// In a real scenario, we'd prompt for credentials or use WebAuthn
-		// For now, let's just simulate saving a config
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			return err
 		}
-		
-		fmt.Print("Enter API Key: ")
-		var apiKey string
-		fmt.Scanln(&apiKey)
+
+		baseURI, err := utils.Prompt("API Base URI (default: https://api.kylrix.com)")
+		if err != nil {
+			return err
+		}
+		if baseURI != "" {
+			cfg.BaseURI = baseURI
+		}
+
+		apiKey, err := utils.PasswordPrompt("Enter API Key")
+		if err != nil {
+			return err
+		}
 		
 		cfg.APIKey = apiKey
 		err = config.SaveConfig(cfg)
@@ -31,7 +36,7 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 		
-		fmt.Println("Successfully logged in and saved configuration.")
+		utils.Success("Successfully authenticated and configuration saved.")
 		return nil
 	},
 }

@@ -7,9 +7,21 @@ import (
 )
 
 type Config struct {
-	BaseURI string `json:"base_uri"`
-	APIKey  string `json:"api_key"`
-	Token   string `json:"token"`
+	BaseURI          string            `json:"base_uri"`
+	APIKey           string            `json:"api_key"`
+	Token            string            `json:"token"`
+	PinVerifier      *PinVerifier      `json:"pin_verifier,omitempty"`
+	EphemeralSession *EphemeralSession `json:"ephemeral_session,omitempty"`
+}
+
+type PinVerifier struct {
+	Salt string `json:"salt"`
+	Hash string `json:"hash"`
+}
+
+type EphemeralSession struct {
+	WrappedMek  string `json:"wrapped_mek"`
+	SessionSalt string `json:"session_salt"`
 }
 
 func GetAppConfigDir() (string, error) {

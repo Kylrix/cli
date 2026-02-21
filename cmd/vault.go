@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 
+	"github.com/nathfavour/kylrix/cli/pkg/config"
 	"github.com/nathfavour/kylrix/cli/pkg/crypto"
 	"github.com/nathfavour/kylrix/cli/pkg/db"
 	"github.com/nathfavour/kylrix/cli/pkg/utils"
@@ -12,6 +15,98 @@ import (
 var (
 	decryptSecret bool
 )
+
+// getMEK handles the multi-layered unlocking logic: Ephemeral PIN -> Master Password
+func getMEK(cfg *config.Config) ([]byte, error) {
+	// 1. Try Ephemeral PIN first if available
+	if cfg.EphemeralSession != nil && cfg.PinVerifier != nil {
+		pin, err := utils.PasswordPrompt("Enter 4-digit PIN to unlock")
+		if err == nil && len(pin) == 4 {
+			// Verify PIN hash
+			salt, _ := base64.StdEncoding.DecodeString(cfg.PinVerifier.Salt)
+			expectedHash, _ := base64.StdEncoding.DecodeString(cfg.PinVerifier.Hash)
+			actualHash := crypto.DerivePinKey(pin, salt)
+
+			if string(actualHash) == string(expectedHash) {
+				// PIN correct, unwrap MEK
+				sessionSalt, _ := base64.StdEncoding.DecodeString(cfg.EphemeralSession.SessionSalt)
+				ephemeralKey := crypto.DeriveEphemeralKey(pin, sessionSalt)
+				mek, err := crypto.UnwrapKey(cfg.EphemeralSession.WrappedMek, ephemeralKey)
+				if err == nil {
+					utils.Success("Vault unlocked via Ephemeral PIN.")
+					return mek, nil
+				}
+			}
+			utils.Warning("PIN incorrect or session expired.")
+		}
+	}
+
+	// 2. Fallback to Master Password
+	password, err := utils.PasswordPrompt("Vault Master Password")
+	if err != nil {
+		return nil, err
+	}
+
+	salt := make([]byte, crypto.SaltSize)
+	copy(salt, []byte("kylrix-ecosystem-default-salt-!!"))
+	mek := crypto.DeriveKey(password, salt)
+
+	// 3. If PIN is set, piggyback this session
+	if cfg.PinVerifier != nil {
+		pin, err := utils.PasswordPrompt("Enter 4-digit PIN to secure this session")
+		if err == nil && len(pin) == 4 {
+			sessionSalt := make([]byte, crypto.SessionSaltSize)
+			rand.Read(sessionSalt)
+
+			ephemeralKey := crypto.DeriveEphemeralKey(pin, sessionSalt)
+			wrappedMek, err := crypto.WrapKey(mek, ephemeralKey)
+			if err == nil {
+				cfg.EphemeralSession = &config.EphemeralSession{
+					WrappedMek:  wrappedMek,
+					SessionSalt: base64.StdEncoding.EncodeToString(sessionSalt),
+				}
+				config.SaveConfig(cfg)
+				utils.Success("Session piggybacked with PIN.")
+			}
+		}
+	}
+
+	return mek, nil
+}
+
+var vaultSetupPinCmd = &cobra.Command{
+	Use:   "setup-pin",
+	Short: "Setup a 4-digit PIN for quick unlocking",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		utils.Banner("Kylrix Vault - Setup PIN")
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return err
+		}
+
+		pin, err := utils.PasswordPrompt("Choose a 4-digit PIN")
+		if err != nil || len(pin) != 4 {
+			return fmt.Errorf("invalid PIN: must be 4 digits")
+		}
+
+		salt := make([]byte, crypto.PinSaltSize)
+		rand.Read(salt)
+		hash := crypto.DerivePinKey(pin, salt)
+
+		cfg.PinVerifier = &config.PinVerifier{
+			Salt: base64.StdEncoding.EncodeToString(salt),
+			Hash: base64.StdEncoding.EncodeToString(hash),
+		}
+
+		err = config.SaveConfig(cfg)
+		if err != nil {
+			return err
+		}
+
+		utils.Success("PIN verifier setup on disk. Next login will allow piggybacking.")
+		return nil
+	},
+}
 
 var vaultCmd = &cobra.Command{
 	Use:   "vault",
@@ -69,19 +164,22 @@ var vaultCreateCmd = &cobra.Command{
 			return err
 		}
 
-		password, err := utils.PasswordPrompt("Vault Master Password")
+		cfg, err := config.LoadConfig()
 		if err != nil {
 			return err
 		}
 
-		salt := make([]byte, crypto.SaltSize)
-		copy(salt, []byte("kylrix-ecosystem-default-salt-!!")) 
+		key, err := getMEK(cfg)
+		if err != nil {
+			return err
+		}
 
-		key := crypto.DeriveKey(password, salt)
 		encrypted, err := crypto.Encrypt(value, key)
 		if err != nil {
 			return err
 		}
+		// Explicitly zero the MEK after use
+		crypto.ZeroBytes(key)
 
 		database, err := db.InitDB()
 		if err != nil {
@@ -122,20 +220,23 @@ var vaultGetCmd = &cobra.Command{
 		utils.Banner("Kylrix Vault - Get")
 		
 		if decryptSecret {
-			password, err := utils.PasswordPrompt("Vault Master Password")
+			cfg, err := config.LoadConfig()
 			if err != nil {
 				return err
 			}
 
-			salt := make([]byte, crypto.SaltSize)
-			copy(salt, []byte("kylrix-ecosystem-default-salt-!!")) 
+			key, err := getMEK(cfg)
+			if err != nil {
+				return err
+			}
 
-			key := crypto.DeriveKey(password, salt)
 			decrypted, err := crypto.Decrypt(payload, key)
 			if err != nil {
 				utils.Error("Decryption failed.")
 				return err
 			}
+			// Explicitly zero the MEK after use
+			crypto.ZeroBytes(key)
 
 			utils.Success(fmt.Sprintf("Secret '%s' decrypted:", name))
 			fmt.Printf("Value: %v\n", decrypted)
@@ -153,5 +254,6 @@ func init() {
 	vaultCmd.AddCommand(vaultListCmd)
 	vaultCmd.AddCommand(vaultGetCmd)
 	vaultCmd.AddCommand(vaultCreateCmd)
+	vaultCmd.AddCommand(vaultSetupPinCmd)
 	rootCmd.AddCommand(vaultCmd)
 }

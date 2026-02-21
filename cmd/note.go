@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/nathfavour/kylrix/cli/pkg/db"
 	"github.com/nathfavour/kylrix/cli/pkg/utils"
 	"github.com/spf13/cobra"

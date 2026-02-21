@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/nathfavour/kylrix/cli/pkg/db"
 	"github.com/nathfavour/kylrix/cli/pkg/utils"
 	"github.com/spf13/cobra"
 )
@@ -22,36 +23,69 @@ var noteCmd = &cobra.Command{
 var noteListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all notes",
-	Run: func(cmd *cobra.Command, args []string) {
-		utils.Banner("Kylrix Note - List")
-		// Placeholder for actual API call
-		notes := []string{"Personal Goals", "Work Project Alpha", "Quick Thoughts"}
-		for i, note := range notes {
-			fmt.Printf("%d. %s\n", i+1, note)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		database, err := db.InitDB()
+		if err != nil {
+			return err
 		}
+		defer database.Close()
+
+		rows, err := database.Query("SELECT title, created_at FROM notes")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		utils.Banner("Kylrix Note - List")
+		header := []string{"TITLE", "CREATED"}
+		var data [][]string
+		for rows.Next() {
+			var title, created string
+			if err := rows.Scan(&title, &created); err != nil {
+				return err
+			}
+			data = append(data, []string{title, created})
+		}
+
+		if len(data) == 0 {
+			utils.Info("No notes found.")
+		} else {
+			utils.Table(header, data)
+		}
+		return nil
 	},
 }
 
 var noteCreateCmd = &cobra.Command{
-	Use:   "create [title] [content]",
+	Use:   "create [title]",
 	Short: "Create a new note",
-	Args:  cobra.MinimumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
 		title := args[0]
-		content := ""
-		if len(args) > 1 {
-			content = args[1]
+		
+		content, err := utils.Prompt("Note Content")
+		if err != nil {
+			return err
 		}
 
-		utils.Banner("Kylrix Note - Create")
 		if enhance {
 			utils.Info("Enhancing note with AI...")
 			content = "[AI Enhanced] " + content
 		}
 		
-		utils.Info(fmt.Sprintf("Creating note: %s", title))
-		utils.Success("Note created successfully.")
-		fmt.Printf("Content: %s\n", content)
+		database, err := db.InitDB()
+		if err != nil {
+			return err
+		}
+		defer database.Close()
+
+		_, err = database.Exec("INSERT INTO notes (title, content) VALUES (?, ?)", title, content)
+		if err != nil {
+			return err
+		}
+
+		utils.Success("Note created successfully in local database.")
+		return nil
 	},
 }
 

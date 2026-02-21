@@ -12,27 +12,39 @@ type Config struct {
 	Token   string `json:"token"`
 }
 
-func GetConfigDir() (string, error) {
-	home, err := os.UserHomeDir()
+func GetAppConfigDir() (string, error) {
+	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".kylrix")
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0755)
-		if err != nil {
+	appDir := filepath.Join(configDir, "kylrix")
+	
+	// Create subdirectories
+	subdirs := []string{"configs", "data", "logs", "cache"}
+	for _, d := range subdirs {
+		path := filepath.Join(appDir, d)
+		if err := os.MkdirAll(path, 0755); err != nil {
 			return "", err
 		}
 	}
-	return dir, nil
+	
+	return appDir, nil
 }
 
 func GetConfigFile() (string, error) {
-	dir, err := GetConfigDir()
+	appDir, err := GetAppConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "config.json"), nil
+	return filepath.Join(appDir, "configs", "config.json"), nil
+}
+
+func GetDataDir() (string, error) {
+	appDir, err := GetAppConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(appDir, "data"), nil
 }
 
 func LoadConfig() (*Config, error) {

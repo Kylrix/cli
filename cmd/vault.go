@@ -4,13 +4,13 @@ import (
 	"fmt"
 
 	"github.com/nathfavour/kylrix/cli/pkg/crypto"
+	"github.com/nathfavour/kylrix/cli/pkg/db"
 	"github.com/nathfavour/kylrix/cli/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
 var (
 	decryptSecret bool
-	vaultPassword string
 )
 
 var vaultCmd = &cobra.Command{
@@ -24,15 +24,36 @@ var vaultCmd = &cobra.Command{
 var vaultListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all secrets",
-	Run: func(cmd *cobra.Command, args []string) {
-		utils.Banner("Kylrix Vault - Secrets")
-		header := []string{"NAME", "CREATED", "TYPE"}
-		data := [][]string{
-			{"github-token", "2024-02-10", "Static"},
-			{"aws-access-key", "2024-02-12", "Static"},
-			{"prod-db-password", "2024-02-15", "Encrypted"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		database, err := db.InitDB()
+		if err != nil {
+			return err
 		}
-		utils.Table(header, data)
+		defer database.Close()
+
+		rows, err := database.Query("SELECT name, created_at FROM vault_secrets")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		utils.Banner("Kylrix Vault - Secrets")
+		header := []string{"NAME", "CREATED"}
+		var data [][]string
+		for rows.Next() {
+			var name, created string
+			if err := rows.Scan(&name, &created); err != nil {
+				return err
+			}
+			data = append(data, []string{name, created})
+		}
+
+		if len(data) == 0 {
+			utils.Info("No secrets found in local vault.")
+		} else {
+			utils.Table(header, data)
+		}
+		return nil
 	},
 }
 
@@ -48,37 +69,55 @@ var vaultCreateCmd = &cobra.Command{
 			return err
 		}
 
-		password, err := utils.PasswordPrompt("Vault Master Password (for key derivation)")
+		password, err := utils.PasswordPrompt("Vault Master Password")
 		if err != nil {
 			return err
 		}
 
-		// Use a dummy salt for now, in reality this would be retrieved or generated
 		salt := make([]byte, crypto.SaltSize)
 		copy(salt, []byte("kylrix-ecosystem-default-salt-!!")) 
 
-		utils.Info("Deriving key using PBKDF2 (600,000 iterations)...")
 		key := crypto.DeriveKey(password, salt)
-		
 		encrypted, err := crypto.Encrypt(value, key)
 		if err != nil {
 			return err
 		}
 
-		utils.Success(fmt.Sprintf("Secret '%s' encrypted successfully using WESP.", name))
-		fmt.Printf("Encrypted Payload: %s\n", encrypted)
-		utils.Info("Note: This matches the 'vault/lib/ecosystem/security.ts' implementation.")
+		database, err := db.InitDB()
+		if err != nil {
+			return err
+		}
+		defer database.Close()
+
+		_, err = database.Exec("INSERT OR REPLACE INTO vault_secrets (name, payload) VALUES (?, ?)", name, encrypted)
+		if err != nil {
+			return err
+		}
+
+		utils.Success(fmt.Sprintf("Secret '%s' encrypted and saved to local SQLite vault.", name))
 		return nil
 	},
 }
 
 var vaultGetCmd = &cobra.Command{
-	Use:   "get [name] [payload]",
+	Use:   "get [name]",
 	Short: "Retrieve/Decrypt a secret",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		payload := args[1]
+		
+		database, err := db.InitDB()
+		if err != nil {
+			return err
+		}
+		defer database.Close()
+
+		var payload string
+		err = database.QueryRow("SELECT payload FROM vault_secrets WHERE name = ?", name).Scan(&payload)
+		if err != nil {
+			utils.Error(fmt.Sprintf("Secret '%s' not found.", name))
+			return nil
+		}
 		
 		utils.Banner("Kylrix Vault - Get")
 		
@@ -92,10 +131,9 @@ var vaultGetCmd = &cobra.Command{
 			copy(salt, []byte("kylrix-ecosystem-default-salt-!!")) 
 
 			key := crypto.DeriveKey(password, salt)
-			
 			decrypted, err := crypto.Decrypt(payload, key)
 			if err != nil {
-				utils.Error("Decryption failed. Ensure the password and payload are correct.")
+				utils.Error("Decryption failed.")
 				return err
 			}
 

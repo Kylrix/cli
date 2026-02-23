@@ -35,7 +35,8 @@ func GetAppConfigDir() (string, error) {
 	subdirs := []string{"configs", "data", "logs", "cache"}
 	for _, d := range subdirs {
 		path := filepath.Join(appDir, d)
-		if err := os.MkdirAll(path, 0755); err != nil {
+		// SECURITY: Use 0700 (owner-only) for sensitive config directories (CVE-KYL-2026-004)
+		if err := os.MkdirAll(path, 0700); err != nil {
 			return "", err
 		}
 	}
@@ -94,5 +95,6 @@ func SaveConfig(cfg *Config) error {
 		return err
 	}
 
-	return os.WriteFile(file, data, 0644)
+	// SECURITY: Use 0600 (owner-only) for sensitive config files (CVE-KYL-2026-004)
+	return os.WriteFile(file, data, 0600)
 }

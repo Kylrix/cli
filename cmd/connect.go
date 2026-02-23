@@ -36,7 +36,7 @@ var shareCmd = &cobra.Command{
 			msg += fmt.Sprintf(" with user: %s", targetTo)
 		}
 		utils.Info(msg)
-		utils.Success("Sharing session started at https://kylrix.com/shared/xyz-123")
+		utils.Success("Sharing session started at https://kylrix.space/shared/xyz-123")
 	},
 }
 

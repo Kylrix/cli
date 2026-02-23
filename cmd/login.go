@@ -17,7 +17,7 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
-		baseURI, err := utils.Prompt("API Base URI (default: https://api.kylrix.com)")
+		baseURI, err := utils.Prompt("API Base URI (default: https://api.kylrix.space)")
 		if err != nil {
 			return err
 		}

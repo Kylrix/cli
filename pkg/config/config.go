@@ -67,7 +67,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return &Config{BaseURI: "https://api.kylrix.com"}, nil
+		return &Config{BaseURI: "https://api.kylrix.space"}, nil
 	}
 
 	data, err := os.ReadFile(file)
